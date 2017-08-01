@@ -205,14 +205,23 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
     val weightsArray: Array[Double] = weights.asInstanceOf[DenseVector].values
     var t = predict(data, weightsArray, r)
     val expnyt = math.exp(-label * t)
-    val tr_loss = math.log(1 + expnyt)
+    val tr_loss = if (expnyt.isInfinite){
+      -label * t
+    } else {
+      math.log(1 + expnyt)
+    }
 
     val z = -label * t
     val max_z = math.max(0, z)
     val kappa = -label * math.exp(z - max_z) / (math.exp(z - max_z) + math.exp(0 - max_z))
     //val kappa = -label * expnyt / (1 + expnyt)
 
-    val (align0, align1) = if(sgd) {
+    //println("t", t)
+    //println("expnyt", expnyt)
+    //println("tr_loss", tr_loss)
+    //println("kappa", kappa)
+
+    val (align0, align1) = if (sgd) {
       (k, m * k)
     } else {
       (k * 2, m * k * 2)
@@ -227,7 +236,48 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
     val pos = if (sgd) n * m * k else n * m * k * 2
     if(k0) weightsArray(weightsArray.length - 1) -= eta * (kappa + r0 * weightsArray(weightsArray.length - 1))
 
+    var g_map = scala.collection.mutable.Map[Int, Double]()
     // j: feature, f: field, v: value
+    // init g_map with lambda * w
+    for(i <- 0 to valueSize - 1) {
+      val (f1, j1, v1) = data(i)
+      if(k1) weightsArray(pos + j1) -= eta * (v1 * kappa + r1 * weightsArray(pos + j1))
+      if (j1 < n && f1 < m) {
+        for(ii <- i + 1 to valueSize - 1) {
+          val (f2, j2, v2) = data(ii)
+          if (j2 < n && f2 < m) {
+            val w1_index: Int = j1 * align1 + f2 * align0
+            val w2_index: Int = j2 * align1 + f1 * align0
+            val v: Double = v1 * v2 * r
+            val kappav: Double = kappa * v
+            for (d <- 0 to k - 1) {
+              if(!g_map.contains(w1_index + d)){
+                g_map += (w1_index + d -> lambda * weightsArray(w1_index + d))
+              }
+              if(!g_map.contains(w2_index + d)){
+                g_map += (w2_index + d -> lambda * weightsArray(w2_index + d))
+              }
+              g_map(w1_index + d) += kappav * weightsArray(w2_index + d)
+              g_map(w2_index + d) += kappav * weightsArray(w1_index + d)
+            }
+          }
+        }
+      }
+    }
+    //
+    g_map.keys.foreach{ w_index => 
+      val wg_index: Int = w_index + k
+      val g: Double = g_map(w_index)
+      if (sgd) {
+        weightsArray(w_index) -= eta * g
+      } else {
+        val wg: Double = weightsArray(wg_index) + g * g
+        weightsArray(wg_index) = wg
+        weightsArray(w_index) -= eta / (math.sqrt(wg)) * g
+      }
+    }
+
+    /*
     while (i < valueSize) {
       val (f1, j1, v1) = data(i)
       if(k1) weightsArray(pos + j1) -= eta * (v1 * kappa + r1 * weightsArray(pos + j1))
@@ -264,6 +314,7 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
       }
       i += 1
     }
+    */
     (BDV(weightsArray), tr_loss)
   }
 }

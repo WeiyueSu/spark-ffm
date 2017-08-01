@@ -72,12 +72,12 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
     var position = 0
     if(sgd) {
       for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to k - 1) {
-        W(position) = coef * random.nextDouble()
+        W(position) = 2 * coef * random.nextDouble() - coef
         position += 1
       }
     } else {
       for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to 2 * k - 1) {
-        W(position) = if (d < k) coef * random.nextDouble() else 1.0
+        W(position) = if (d < k) 2 * coef * random.nextDouble() - coef else 1.0
         position += 1
       }
     }
