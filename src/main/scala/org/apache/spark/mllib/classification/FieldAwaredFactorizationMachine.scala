@@ -199,40 +199,42 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
   override def compute(data: Vector, label: Double, weights: Vector, cumGradient: Vector): Double = {
     throw new Exception("This part is merged into computeFFM()")
   }
-  def computeFFM(label: Double, data2: Array[(Int, Int, Double)], weights: Vector,
+  def computeFFM(label: Double, data: Array[(Int, Int, Double)], weights: Vector,
                  r: Double = 1.0, eta: Double, lambda: Double,
                  do_update: Boolean, iter: Int, solver: Boolean = true): (BDV[Double], Double) = {
     val weightsArray: Array[Double] = weights.asInstanceOf[DenseVector].values
-    val t = predict(data2, weightsArray, r)
+    var t = predict(data, weightsArray, r)
     val expnyt = math.exp(-label * t)
     val tr_loss = math.log(1 + expnyt)
-    val kappa = -label * expnyt / (1 + expnyt)
+
+    val z = -label * t
+    val max_z = math.max(0, z)
+    val kappa = -label * math.exp(z - max_z) / (math.exp(z - max_z) + math.exp(0 - max_z))
+    //val kappa = -label * expnyt / (1 + expnyt)
+
     val (align0, align1) = if(sgd) {
       (k, m * k)
     } else {
       (k * 2, m * k * 2)
     }
-    val valueSize = data2.size //feature length
-    val indicesArray = data2.map(_._2) //feature index
-    val valueArray: Array[(Int, Double)] = data2.map(x => (x._1, x._3))
+    val valueSize = data.size //feature length
+    val indicesArray = data.map(_._2) //feature index
+    val valueArray: Array[(Int, Double)] = data.map(x => (x._1, x._3))
     var i = 0
     var ii = 0
 
     val r0, r1 = 0.0
     val pos = if (sgd) n * m * k else n * m * k * 2
     if(k0) weightsArray(weightsArray.length - 1) -= eta * (kappa + r0 * weightsArray(weightsArray.length - 1))
+
     // j: feature, f: field, v: value
     while (i < valueSize) {
-      val j1 = data2(i)._2
-      val f1 = data2(i)._1
-      val v1 = data2(i)._3
+      val (f1, j1, v1) = data(i)
       if(k1) weightsArray(pos + j1) -= eta * (v1 * kappa + r1 * weightsArray(pos + j1))
       if (j1 < n && f1 < m) {
         ii = i + 1
         while (ii < valueSize) {
-          val j2 = data2(ii)._2
-          val f2 = data2(ii)._1
-          val v2 = data2(ii)._3
+          val (f2, j2, v2) = data(ii)
           if (j2 < n && f2 < m) {
             val w1_index: Int = j1 * align1 + f2 * align0
             val w2_index: Int = j2 * align1 + f1 * align0
