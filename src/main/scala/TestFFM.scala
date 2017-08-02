@@ -23,7 +23,7 @@ object TestFFM extends App {
     val sc = new SparkContext(new SparkConf().setAppName("TESTFFM"))
 
     if (args.length != 10) {
-      println("testFFM <train_file> <k> <n_iters> <eta> <lambda> " + "<normal> <random> <partition_num> <valid_file> <test_file>")
+      println("testFFM <train_file> <k> <n_iters> <eta> <lambda> <k0> <k1> <partition_num> <valid_file> <test_file> <normal> <random>")
     }
 
     /*
@@ -49,13 +49,22 @@ object TestFFM extends App {
    val n = data.flatMap(x=>x._2).map(_._2).collect.reduceLeft(_ max _) + 1
 
    val ffm: FFMModel = FFMWithAdag.train(train_data, m, n, dim = (args(5).toBoolean, args(6).toBoolean, args(1).toInt), n_iters = args(2).toInt,
-     eta = args(3).toDouble, lambda = args(4).toDouble, normalization = false, false, "adagrad")
+     eta = args(3).toDouble, lambda = args(4).toDouble, normalization = args(10).toBoolean, args(11).toBoolean, "adagrad")
+
+   val train_predictionAndLabels = train_data.map(x => (ffm.predict(x._2), x._1))
+   val train_metrics = new BinaryClassificationMetrics(train_predictionAndLabels)
+   val train_auROC = train_metrics.areaUnderROC
+   println("Train Area under ROC = " + train_auROC)
 
    val predictionAndLabels = valid_data.map(x => (ffm.predict(x._2), x._1))
    val metrics = new BinaryClassificationMetrics(predictionAndLabels)
    val auROC = metrics.areaUnderROC
-   println("Area under ROC = " + auROC)
+   println("Valid Area under ROC = " + auROC)
 
+   val test_predictionAndLabels = test_data.map(x => (ffm.predict(x._2), x._1))
+   val test_metrics = new BinaryClassificationMetrics(test_predictionAndLabels)
+   val test_auROC = test_metrics.areaUnderROC
+   println("Test Area under ROC = " + test_auROC)
    /*
    val scores: RDD[(Double, Double)] = valid_data.map(x => {
      val p = ffm.predict(x._2)

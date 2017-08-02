@@ -72,12 +72,12 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
     var position = 0
     if(sgd) {
       for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to k - 1) {
-        W(position) = 2 * coef * random.nextDouble() - coef
+        W(position) = coef * random.nextDouble()
         position += 1
       }
     } else {
       for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to 2 * k - 1) {
-        W(position) = if (d < k) 2 * coef * random.nextDouble() - coef else 1.0
+        W(position) = if (d < k) coef * random.nextDouble() else 1.0
         position += 1
       }
     }
@@ -104,7 +104,7 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
     * of FFMNode entries.
     */
   def run(input: RDD[(Double, Array[(Int, Int, Double)])]): FFMModel = {
-    val gradient = new FFMGradient(m, n, dim, sgd)
+    val gradient = new FFMGradient(m, n, dim, sgd, normalization)
     val optimizer = new GradientDescentFFM(gradient, null, k, n_iters, eta, lambda, normalization, random)
 
     val initWeights = generateInitWeights()

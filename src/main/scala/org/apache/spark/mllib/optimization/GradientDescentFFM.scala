@@ -131,6 +131,21 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
     weights
   }
 
+  /*
+  def rnMiniBatchAdag(
+                    data: RDD[(Double, Array[(Int, Int, Double)])],
+                    gradient: Gradient,
+                    initialWeights: Vector,
+                    n_iters: Int,
+                    eta: Double,
+                    lambda: Double,
+                    solver: Boolean,
+                    miniBatchFraction: Double,
+                    convergenceTol: Double) : (Vector, Array[Double]) = {
+
+  }
+  */
+
 }
 
 object GradientDescentFFM {
@@ -159,7 +174,7 @@ object GradientDescentFFM {
       val (wSum, lSum) = data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
         seqOp = (c, v) => {
           gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
-            1.0, eta, lambda, true, i, solver)
+            eta, lambda, true, i, solver)
         },
         combOp = (c1, c2) => {
           (c1._1 + c2._1, c1._2 + c2._2)
