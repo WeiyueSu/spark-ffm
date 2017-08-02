@@ -49,7 +49,7 @@ object TestFFM extends App {
    val n = data.flatMap(x=>x._2).map(_._2).collect.reduceLeft(_ max _) + 1
 
    val ffm: FFMModel = FFMWithAdag.train(train_data, m, n, dim = (args(5).toBoolean, args(6).toBoolean, args(1).toInt), n_iters = args(2).toInt,
-     eta = args(3).toDouble, lambda = args(4).toDouble, normalization = args(10).toBoolean, args(11).toBoolean, "adagrad")
+     eta = args(3).toDouble, lambda = args(4).toDouble, normalization = args(10).toBoolean, args(11).toBoolean, "adagrad", null, valid_data)
 
    val train_predictionAndLabels = train_data.map(x => (ffm.predict(x._2), x._1))
    val train_metrics = new BinaryClassificationMetrics(train_predictionAndLabels)

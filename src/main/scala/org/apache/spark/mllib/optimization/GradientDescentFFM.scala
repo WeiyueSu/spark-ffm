@@ -20,7 +20,7 @@ package org.apache.spark.mllib.optimization
 import breeze.linalg.{DenseVector => BDV}
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.mllib.classification._
-import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors}
 import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable.ArrayBuffer
@@ -126,12 +126,15 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
 
   }
   def optimize(data: RDD[(Double, Array[(Int, Int, Double)])], initialWeights: Vector,
-               n_iters: Int, eta: Double, lambda: Double, solver: Boolean): Vector = {
-    val (weights, _) = GradientDescentFFM.parallelAdag(data, gradient, initialWeights, n_iters, eta, lambda, solver)
+               n_iters: Int, eta: Double, lambda: Double, solver: Boolean, valid_data: RDD[(Double, Array[(Int, Int, Double)])]): Vector = {
+    val (weights, _) = GradientDescentFFM.parallelAdag(data, gradient, initialWeights, n_iters, eta, lambda, solver, valid_data: RDD[(Double, Array[(Int, Int, Double)])])
     weights
   }
 
-  /*
+
+}
+
+object GradientDescentFFM {
   def rnMiniBatchAdag(
                     data: RDD[(Double, Array[(Int, Int, Double)])],
                     gradient: Gradient,
@@ -140,15 +143,61 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
                     eta: Double,
                     lambda: Double,
                     solver: Boolean,
-                    miniBatchFraction: Double,
-                    convergenceTol: Double) : (Vector, Array[Double]) = {
+                    miniBatchFraction: Double = 1.0,
+                    convergenceTol: Double = 0.0) : (Vector, Array[Double]) = {
+        val numIterations = n_iters
+    val stochasticLossHistory = new ArrayBuffer[Double](numIterations)
+    var weights = Vectors.dense(initialWeights.toArray)
+    val n = weights.size
+    val slices = data.getNumPartitions
+
+
+    var converged = false // indicates whether converged based on convergenceTol
+    var i = 0
+    while (!converged && i < numIterations) {
+      val bcWeights = data.context.broadcast(weights)
+      // Sample a subset (fraction miniBatchFraction) of the total data
+      // compute and sum up the subgradients on this subset (this is one map-reduce)
+      val sampled_data = data.sample(false, miniBatchFraction, i)
+      val (wSum, lSum) = sampled_data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
+        seqOp = (c, v) => {
+          gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
+            eta, lambda, true, i, solver)
+        },
+        combOp = (c1, c2) => {
+          (c1._1 + c2._1, c1._2 + c2._2)
+        }) // TODO: add depth level
+
+      /*
+      val (wSum, lSum) = data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
+        seqOp = (c, v) => {
+          computeFFM(v._1, v._2, Vectors.fromBreeze(c._1), 1.0, param.eta, param.lambda, true)
+        },
+        combOp = (c1, c2) => {
+          (c1._1 += c2._1, c1._2 + c2._2)
+        }, 7)
+
+      */
+      i += 1
+      weights = Vectors.dense(wSum.toArray.map(_ / slices))
+      stochasticLossHistory += lSum / slices
+      //println("iter:" + i + ",tr_loss:" + lSum / slices)
+
+      val (valid_wSum, valid_lSum) = valid_data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
+        seqOp = (c, v) => {
+          gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
+            eta, lambda, false, i, solver)
+        },
+        combOp = (c1, c2) => {
+          (c1._1 + c2._1, c1._2 + c2._2)
+        }) // TODO: add depth level
+      println("iter:" + i + ",tr_loss:" + lSum / slices + ",va_loss:" + valid_lSum / slices)
+    }
+
+    (weights, stochasticLossHistory.toArray)
 
   }
-  */
 
-}
-
-object GradientDescentFFM {
   def parallelAdag(
                     data: RDD[(Double, Array[(Int, Int, Double)])],
                     gradient: Gradient,
@@ -156,7 +205,8 @@ object GradientDescentFFM {
                     n_iters: Int,
                     eta: Double,
                     lambda: Double,
-                    solver: Boolean) : (Vector, Array[Double]) = {
+                    solver: Boolean,
+                    valid_data: RDD[(Double, Array[(Int, Int, Double)])]) : (Vector, Array[Double]) = {
     val numIterations = n_iters
     val stochasticLossHistory = new ArrayBuffer[Double](numIterations)
     var weights = Vectors.dense(initialWeights.toArray)
@@ -165,7 +215,7 @@ object GradientDescentFFM {
 
 
     var converged = false // indicates whether converged based on convergenceTol
-    var i = 1
+    var i = 0
     while (!converged && i < numIterations) {
       val bcWeights = data.context.broadcast(weights)
       // Sample a subset (fraction miniBatchFraction) of the total data
@@ -190,10 +240,20 @@ object GradientDescentFFM {
         }, 7)
 
       */
+      i += 1
       weights = Vectors.dense(wSum.toArray.map(_ / slices))
       stochasticLossHistory += lSum / slices
-      println("iter:" + (i + 1) + ",tr_loss:" + lSum / slices)
-      i += 1
+      //println("iter:" + i + ",tr_loss:" + lSum / slices)
+
+      val (valid_wSum, valid_lSum) = valid_data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
+        seqOp = (c, v) => {
+          gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
+            eta, lambda, false, i, solver)
+        },
+        combOp = (c1, c2) => {
+          (c1._1 + c2._1, c1._2 + c2._2)
+        }) // TODO: add depth level
+      println("iter:" + i + ",tr_loss:" + lSum / slices + ",va_loss:" + valid_lSum / slices)
     }
 
     (weights, stochasticLossHistory.toArray)

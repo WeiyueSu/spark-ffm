@@ -103,13 +103,18 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
     * Run the algorithm with the configured parameters on an input RDD
     * of FFMNode entries.
     */
-  def run(input: RDD[(Double, Array[(Int, Int, Double)])]): FFMModel = {
+
+  def run(input: RDD[(Double, Array[(Int, Int, Double)])], initWeights: Vector, valid_data: RDD[(Double, Array[(Int, Int, Double)])]): FFMModel = {
+    val weights = if(initWeights == null){
+      generateInitWeights()
+    }else{
+      initWeights
+    }
     val gradient = new FFMGradient(m, n, dim, sgd, normalization)
     val optimizer = new GradientDescentFFM(gradient, null, k, n_iters, eta, lambda, normalization, random)
 
-    val initWeights = generateInitWeights()
-    val weights = optimizer.optimize(input, initWeights,n_iters, eta, lambda, sgd)
-    createModel(weights)
+    val new_weights = optimizer.optimize(input, weights, n_iters, eta, lambda, sgd, valid_data)
+    createModel(new_weights)
   }
 
   def setOptimizer(op: String): Boolean = {
@@ -135,10 +140,10 @@ object FFMWithAdag {
     * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
     * @return FFMModel
     */
-  def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int,
+    def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int,
             dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double, normalization: Boolean, random: Boolean,
-            solver: String = "sgd"): FFMModel = {
+            solver: String = "sgd", initWeights: Vector = null, valid_data: RDD[(Double, Array[(Int, Int, Double)])] = null): FFMModel = {
     new FFMWithAdag(m, n, dim, n_iters, eta, lambda, normalization, random, solver)
-      .run(data)
+      .run(data, initWeights, valid_data)
   }
 }
