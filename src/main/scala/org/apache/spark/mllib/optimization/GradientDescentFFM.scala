@@ -136,7 +136,7 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
 
 object GradientDescentFFM {
   def runMiniBatchAdag(
-                    data: RDD[(Double, Array[(Int, Int, Double)])],
+                    train_data: RDD[(Double, Array[(Int, Int, Double)])],
                     gradient: Gradient,
                     initialWeights: Vector,
                     n_iters: Int,
@@ -148,19 +148,19 @@ object GradientDescentFFM {
                     convergenceTol: Double = 0.0) : (Vector, Array[Double]) = {
     val numIterations = n_iters
     val stochasticLossHistory = new ArrayBuffer[Double](numIterations)
-    var weights = Vectors.dense(initialWeights.toArray)
+    var weights = initialWeights
     val n = weights.size
-    val slices = data.getNumPartitions
+    val slices = train_data.getNumPartitions
 
 
     var converged = false // indicates whether converged based on convergenceTol
     var i = 0
     while (!converged && i < numIterations) {
-      val bcWeights = data.context.broadcast(weights)
+      val bcWeights = train_data.context.broadcast(weights)
       // Sample a subset (fraction miniBatchFraction) of the total data
-      val sampled_data = data.sample(false, miniBatchFraction, i)
+      val sampled_train_data = train_data.sample(false, miniBatchFraction, i)
       // compute and sum up the subgradients on this subset (this is one map-reduce)
-      val (wSum, lSum) = sampled_data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
+      val (wSum, lSum) = sampled_train_data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
         seqOp = (c, v) => {
           gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
             eta, lambda, true, i, solver)
@@ -174,7 +174,8 @@ object GradientDescentFFM {
       stochasticLossHistory += lSum / slices
       //println("iter:" + i + ",tr_loss:" + lSum / slices)
 
-      val (valid_wSum, valid_lSum) = valid_data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
+      val sampled_valid_data = valid_data.sample(false, miniBatchFraction, i)
+      val (valid_wSum, valid_lSum) = sampled_valid_data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
         seqOp = (c, v) => {
           gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
             eta, lambda, false, i, solver)

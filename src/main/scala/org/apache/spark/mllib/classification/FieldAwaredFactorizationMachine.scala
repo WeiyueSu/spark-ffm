@@ -52,7 +52,7 @@ class FFMModel(
     eta: Double,
     lambda: Double,
     isNorm: Boolean, random: Boolean,
-    initWeights: Array[Double],
+    initWeights: Vector,
     sgd: Boolean = true ) 
   extends Serializable {
 
@@ -67,7 +67,7 @@ class FFMModel(
   private var normalization: Boolean = isNorm
   private var initMean: Double = 0
   private var initStd: Double = 0.01
-  val weights: Array[Double] = initWeights
+  val weights: Vector = initWeights
 
   require(n > 0 && k > 0 && m > 0)
 
@@ -101,7 +101,7 @@ class FFMModel(
     }
     val sqrt_r = math.sqrt(r)
 
-    var t = if (k0) weights(weights.length - 1) else 0.0
+    var t = if (k0) weights(weights.size - 1) else 0.0
 
     val (align0, align1) = if(sgd) {
       (k, m * k)
@@ -144,7 +144,7 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
   private val k1 = dim._2
   private val k = dim._3
 
-  private def predict (data: Array[(Int, Int, Double)], weights: Array[Double]): Double = {
+  private def predict (data: Array[(Int, Int, Double)], weights: Vector): Double = {
 
     val r = if(isNorm){
       1 / data.map(x => math.pow(x._3, 2)).sum
@@ -154,7 +154,7 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
 
     val sqrt_r = math.sqrt(r)
 
-    var t = if (k0) weights(weights.length - 1) else 0.0
+    var t = if (k0) weights(weights.size - 1) else 0.0
 
     val (align0, align1) = if(sgd) {
       (k, m * k)
@@ -216,14 +216,14 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
     val sqrt_r = math.sqrt(r)
 
     val weightsArray: Array[Double] = weights.asInstanceOf[DenseVector].values
-    var t = predict(data, weightsArray)
+    var t = predict(data, weights)
     val expnyt = math.exp(-label * t)
     val tr_loss = if (expnyt.isInfinite){
       -label * t
     } else {
       math.log(1 + expnyt)
     }
-    //println("t: ", t, " tr_loss:", tr_loss)
+    println("t: ", t, " label: ", label, " tr_loss: ", tr_loss, " expnyt: ", expnyt)
     if(do_update){
 
       val z = -label * t

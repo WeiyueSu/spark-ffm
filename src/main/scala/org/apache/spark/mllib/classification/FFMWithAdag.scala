@@ -95,8 +95,8 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
     * Create a FFMModle from an encoded vector.
     */
   private def createModel(weights: Vector): FFMModel = {
-    val values = weights.toArray
-    new FFMModel(n, m, dim, n_iters, eta, lambda, normalization, random, values, sgd)
+    //val values = weights.toArray
+    new FFMModel(n, m, dim, n_iters, eta, lambda, normalization, random, weights, sgd)
   }
 
   /**
