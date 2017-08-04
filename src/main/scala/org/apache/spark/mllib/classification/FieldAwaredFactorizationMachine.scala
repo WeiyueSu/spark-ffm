@@ -238,7 +238,7 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
       math.log(1 + expnyt)
     }
     if(do_update){
-      System.err.println("t: ", t, " label: ", label, " tr_loss: ", tr_loss, " expnyt: ", expnyt)
+      //System.err.println("t: ", t, " label: ", label, " tr_loss: ", tr_loss, " expnyt: ", expnyt)
 
       val z = -label * t
       val max_z = math.max(0, z)
@@ -256,36 +256,46 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
       var i = 0
       var ii = 0
 
-      //val r0, r1 = 0.0
-      val r0 = lambda 
-      val r1 = lambda
+      val r0, r1 = 0.0
+      var useOld = false
+      //val r0 = lambda 
+      //val r1 = lambda
       val pos = if (sgd) n * m * k else n * m * k * 2
-      if(k0) {
-        if(sgd){
-          val gk0: Double = kappa + r0 * weightsArray(weightsArray.length - 1)
-          weightsArray(weightsArray.length - 1) -= eta * gk0
-        }else{
-          val gk0: Double = kappa + r0 * weightsArray(weightsArray.length - 2)
-          val wgk0: Double = weightsArray(weightsArray.length - 1) + gk0 * gk0
-          weightsArray(weightsArray.length - 2) -= eta / (math.sqrt(wgk0)) * gk0
-          weightsArray(weightsArray.length - 1) = wgk0
+      if (useOld){
+        weightsArray(weightsArray.length - 2) -= eta * (kappa + r0 * weightsArray(weightsArray.length - 2))
+      }else{
+        if(k0) {
+          if(sgd){
+            val gk0: Double = kappa + r0 * weightsArray(weightsArray.length - 1)
+            weightsArray(weightsArray.length - 1) -= eta * gk0
+          }else{
+            val gk0: Double = kappa + r0 * weightsArray(weightsArray.length - 2)
+            val wgk0: Double = weightsArray(weightsArray.length - 1) + gk0 * gk0
+            weightsArray(weightsArray.length - 2) -= eta / (math.sqrt(wgk0)) * gk0
+            weightsArray(weightsArray.length - 1) = wgk0
+          }
         }
       }
 
+      useOld = false
       for (i <- 0 to valueSize - 1) {
         val (f1, j1, v1) = data(i)
-        //weightsArray(pos + j1) -= eta * (v1 * kappa + r1 * weightsArray(pos + j1)) * sqrt_r
-        if(k1) {
-          val gk1 = v1 * kappa + r1 * weightsArray(pos + j1) * sqrt_r
-          if (sgd){
-            weightsArray(pos + j1) -= eta * gk1
-          }else{
-            val wgk1: Double = weightsArray(pos + j1 + n) + gk1 * gk1
-            weightsArray(pos + j1) -= eta / (math.sqrt(wgk1)) * gk1
-            weightsArray(pos + j1 + n) = wgk1
-          }
-        }
         if (j1 < n && f1 < m) {
+          if(useOld){
+            weightsArray(pos + j1) -= eta * (v1 * kappa * sqrt_r + r1 * weightsArray(pos + j1))
+          }else{
+            if(k1) {
+              val gk1 = v1 * kappa * sqrt_r + r1 * weightsArray(pos + j1)
+              if (sgd){
+                weightsArray(pos + j1) -= eta * gk1
+              }else{
+                val wgk1: Double = weightsArray(pos + j1 + n) + gk1 * gk1
+                weightsArray(pos + j1) -= eta / (math.sqrt(wgk1)) * gk1
+                weightsArray(pos + j1 + n) = wgk1
+                //System.err.println("v1: ", v1, "gk1: ", gk1, " wgk1: ", wgk1, " w: ", weightsArray(pos + j1),  " G: ", weightsArray(pos + j1 + n))
+              }
+            }
+          }
           for (ii <- i + 1 to valueSize - 1) {
             val (f2, j2, v2) = data(ii)
             if (j2 < n && f2 < m) {

@@ -48,11 +48,24 @@ object TestFFM extends App {
     if (args.length != 10) {
       println("testFFM <train_file> <k> <n_iters> <eta> <lambda> <k0> <k1> <partition_num> <valid_file> <test_file> <normal> <random> <miniBatchFraction>")
     }
+    var line = ""
+    for(arg <- args){
+      line += arg + " "
+    }
+    println(line)
     var initWeights: Vector=null
     for (date <- 14 to 17){
       val ffm:FFMModel = train_one_day(sc, args, date, initWeights)
       initWeights = ffm.weights
     }
+
+    val pre_path: String = "/user/gzsuweiyue/Data/netease_ctr/split/2017071[4567]/"
+    val partition_num = args(7).toInt
+    val test_data = load_ffm(sc, pre_path + args(9)).repartition(partition_num)
+    val test_predictionAndLabels = test_data.map(x => (ffm.predict(x._2), x._1))
+    val test_metrics = new BinaryClassificationMetrics(test_predictionAndLabels)
+    val test_auROC = test_metrics.areaUnderROC
+    println("Test Area under ROC in day " + date.toString + " = " + test_auROC)
     /*
     val partition_num = args(7).toInt
     val train_data = load_ffm(sc, args(0)).repartition(partition_num)
