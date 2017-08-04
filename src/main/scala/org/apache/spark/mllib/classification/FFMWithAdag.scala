@@ -50,9 +50,9 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
   private def generateInitWeights(): Vector = {
     val (num_k0, num_k1) = (k0, k1) match {
       case (true, true) =>
-        (n, 1)
+        (1 * n, 1)
       case(true, false) =>
-        (n, 0)
+        (1 * n, 0)
       case(false, true) =>
         (0, 1)
       case(false, false) =>
@@ -61,11 +61,11 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
     val W = if(sgd){
       val tmpSize = n * m * k + num_k1 + num_k0
       println("allocating:" + tmpSize)
-      new Array[Double](n * m * k + num_k1 + num_k0)
+      new Array[Double](tmpSize)
     } else {
-      val tmpSize = n * m * k * 2 + num_k1 + num_k0
+      val tmpSize = n * m * k * 2 + num_k1 * 2 + num_k0 * 2
       println("allocating:" + tmpSize)
-      new Array[Double](n * m * k * 2 + num_k1 + num_k0)
+      new Array[Double](tmpSize)
     }
     val coef = 1.0 / Math.sqrt(k)
     val random = new Random()
@@ -75,34 +75,45 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
         W(position) = coef * random.nextDouble()
         position += 1
       }
+      if (k1) {
+        for (p <- 0 to n - 1) {
+          W(position) = 0.0
+          position += 1
+        }
+      }
+      if (k0) W(position) = 0.0
     } else {
       for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to 2 * k - 1) {
         W(position) = if (d < k) coef * random.nextDouble() else 1.0
         position += 1
       }
-    }
-    if (k1) {
-      for (p <- 0 to n - 1) {
+      if (k1) {
+        for (p <- 0 to 2 * n - 1) {
+          W(position) = if (p < n) 0.0 else 1.0
+          position += 1
+        }
+      }
+      if (k0){
         W(position) = 0.0
         position += 1
+        W(position) = 1.0
       }
     }
-    if (k0) W(position) = 0.0
     Vectors.dense(W)
   }
 
   /**
-    * Create a FFMModle from an encoded vector.
-    */
+  * Create a FFMModle from an encoded vector.
+  */
   private def createModel(weights: Vector): FFMModel = {
     //val values = weights.toArray
     new FFMModel(n, m, dim, n_iters, eta, lambda, normalization, random, weights, sgd)
   }
 
   /**
-    * Run the algorithm with the configured parameters on an input RDD
-    * of FFMNode entries.
-    */
+  * Run the algorithm with the configured parameters on an input RDD
+  * of FFMNode entries.
+  */
 
   def run(input: RDD[(Double, Array[(Int, Int, Double)])], initWeights: Vector, valid_data: RDD[(Double, Array[(Int, Int, Double)])], miniBatchFraction: Double): FFMModel = {
     val weights = if(initWeights == null){
@@ -126,25 +137,25 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
 
 object FFMWithAdag {
   /**
-    *
-    * @param data input data RDD
-    * @param m number of fields of input data
-    * @param n number of features of input data
-    * @param dim A (Boolean,Boolean,Int) 3-Tuple stands for whether the global bias term should be used, whether the
-    *            one-way interactions should be used, and the number of factors that are used for pairwise
-    *            interactions, respectively.
-    * @param n_iters number of iterations
-    * @param eta step size to be used for each iteration
-    * @param lambda regularization for pairwise interactions
-    * @param normalization whether normalize data
-    * @param random whether randomize data
-    * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
-    * @return FFMModel
-    */
-    def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int,
-            dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double, normalization: Boolean, random: Boolean,
-            solver: String = "sgd", initWeights: Vector=null, valid_data: RDD[(Double, Array[(Int, Int, Double)])]=null, miniBatchFraction: Double=1.0): FFMModel = {
+  *
+  * @param data input data RDD
+  * @param m number of fields of input data
+  * @param n number of features of input data
+  * @param dim A (Boolean,Boolean,Int) 3-Tuple stands for whether the global bias term should be used, whether the
+  *            one-way interactions should be used, and the number of factors that are used for pairwise
+  *            interactions, respectively.
+  * @param n_iters number of iterations
+  * @param eta step size to be used for each iteration
+  * @param lambda regularization for pairwise interactions
+  * @param normalization whether normalize data
+  * @param random whether randomize data
+  * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
+  * @return FFMModel
+  */
+  def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int,
+    dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double, normalization: Boolean, random: Boolean,
+    solver: String = "sgd", initWeights: Vector=null, valid_data: RDD[(Double, Array[(Int, Int, Double)])]=null, miniBatchFraction: Double=1.0): FFMModel = {
     new FFMWithAdag(m, n, dim, n_iters, eta, lambda, normalization, random, solver)
-      .run(data, initWeights, valid_data, miniBatchFraction)
+    .run(data, initWeights, valid_data, miniBatchFraction)
   }
 }

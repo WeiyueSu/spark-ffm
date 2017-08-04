@@ -1,19 +1,19 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+* Licensed to the Apache Software Foundation (ASF) under one or more
+* contributor license agreements.  See the NOTICE file distributed with
+* this work for additional information regarding copyright ownership.
+* The ASF licenses this file to You under the Apache License, Version 2.0
+* (the "License"); you may not use this file except in compliance with
+* the License.  You may obtain a copy of the License at
+*
+*    http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+*/
 
 package org.apache.spark.mllib.classification
 
@@ -27,34 +27,34 @@ import org.apache.spark.mllib.optimization.Gradient
 import scala.util.Random
 
 /**
- * Created by vincent on 16-12-19.
- */
+* Created by vincent on 16-12-19.
+*/
 /**
- *
- * @param numFeatures number of features
- * @param numFields number of fields
- * @param dim A (Boolean,Boolean,Int) 3-Tuple stands for whether the global bias term should be used, whether the
- *            one-way interactions should be used, and the number of factors that are used for pairwise
- *            interactions, respectively.
- * @param n_iters number of iterations
- * @param eta step size to be used for each iteration
- * @param lambda regularization for pairwise interations
- * @param isNorm whether normalize data
- * @param random whether randomize data
- * @param weights weights of FFMModel
- * @param sgd "true": parallelizedSGD, parallelizedAdaGrad would be used otherwise
- */
+*
+* @param numFeatures number of features
+* @param numFields number of fields
+* @param dim A (Boolean,Boolean,Int) 3-Tuple stands for whether the global bias term should be used, whether the
+*            one-way interactions should be used, and the number of factors that are used for pairwise
+*            interactions, respectively.
+* @param n_iters number of iterations
+* @param eta step size to be used for each iteration
+* @param lambda regularization for pairwise interations
+* @param isNorm whether normalize data
+* @param random whether randomize data
+* @param weights weights of FFMModel
+* @param sgd "true": parallelizedSGD, parallelizedAdaGrad would be used otherwise
+*/
 class FFMModel(
-    numFeatures: Int,
-    numFields: Int,
-    dim: (Boolean, Boolean, Int),
-    n_iters: Int,
-    eta: Double,
-    lambda: Double,
-    isNorm: Boolean, random: Boolean,
-    initWeights: Vector,
-    sgd: Boolean = true ) 
-  extends Serializable {
+  numFeatures: Int,
+  numFields: Int,
+  dim: (Boolean, Boolean, Int),
+  n_iters: Int,
+  eta: Double,
+  lambda: Double,
+  isNorm: Boolean, random: Boolean,
+  initWeights: Vector,
+  sgd: Boolean = true ) 
+extends Serializable {
 
   private var n: Int = numFeatures
   //numFeatures
@@ -101,7 +101,14 @@ class FFMModel(
     }
     val sqrt_r = math.sqrt(r)
 
-    var t = if (k0) weights(weights.size - 1) else 0.0
+    var t = 0.0
+    if (k0){
+      if (sgd){
+        t += weights(weights.size - 1)
+      }else{
+        t += weights(weights.size - 2)
+      }
+    }
 
     val (align0, align1) = if(sgd) {
       (k, m * k)
@@ -154,7 +161,14 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
 
     val sqrt_r = math.sqrt(r)
 
-    var t = if (k0) weights(weights.size - 1) else 0.0
+    var t = 0.0
+    if (k0){
+      if (sgd){
+        t += weights(weights.size - 1)
+      }else{
+        t += weights(weights.size - 2)
+      }
+    }
 
     val (align0, align1) = if(sgd) {
       (k, m * k)
@@ -224,7 +238,7 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
       math.log(1 + expnyt)
     }
     if(do_update){
-      // println("t: ", t, " label: ", label, " tr_loss: ", tr_loss, " expnyt: ", expnyt)
+      System.err.println("t: ", t, " label: ", label, " tr_loss: ", tr_loss, " expnyt: ", expnyt)
 
       val z = -label * t
       val max_z = math.max(0, z)
@@ -242,13 +256,35 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
       var i = 0
       var ii = 0
 
-      val r0, r1 = 0.0
+      //val r0, r1 = 0.0
+      val r0 = lambda 
+      val r1 = lambda
       val pos = if (sgd) n * m * k else n * m * k * 2
-      if(k0) weightsArray(weightsArray.length - 1) -= eta * (kappa + r0 * weightsArray(weightsArray.length - 1))
+      if(k0) {
+        if(sgd){
+          val gk0: Double = kappa + r0 * weightsArray(weightsArray.length - 1)
+          weightsArray(weightsArray.length - 1) -= eta * gk0
+        }else{
+          val gk0: Double = kappa + r0 * weightsArray(weightsArray.length - 2)
+          val wgk0: Double = weightsArray(weightsArray.length - 1) + gk0 * gk0
+          weightsArray(weightsArray.length - 2) -= eta / (math.sqrt(wgk0)) * gk0
+          weightsArray(weightsArray.length - 1) = wgk0
+        }
+      }
 
-        for (i <- 0 to valueSize - 1) {
+      for (i <- 0 to valueSize - 1) {
         val (f1, j1, v1) = data(i)
-        if(k1) weightsArray(pos + j1) -= eta * (v1 * kappa + r1 * weightsArray(pos + j1)) * sqrt_r
+        //weightsArray(pos + j1) -= eta * (v1 * kappa + r1 * weightsArray(pos + j1)) * sqrt_r
+        if(k1) {
+          val gk1 = v1 * kappa + r1 * weightsArray(pos + j1) * sqrt_r
+          if (sgd){
+            weightsArray(pos + j1) -= eta * gk1
+          }else{
+            val wgk1: Double = weightsArray(pos + j1 + n) + gk1 * gk1
+            weightsArray(pos + j1) -= eta / (math.sqrt(wgk1)) * gk1
+            weightsArray(pos + j1 + n) = wgk1
+          }
+        }
         if (j1 < n && f1 < m) {
           for (ii <- i + 1 to valueSize - 1) {
             val (f2, j2, v2) = data(ii)

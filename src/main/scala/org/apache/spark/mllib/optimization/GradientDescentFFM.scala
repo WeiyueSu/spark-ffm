@@ -155,7 +155,12 @@ object GradientDescentFFM {
 
     var converged = false // indicates whether converged based on convergenceTol
     var i = 0
-    while (!converged && i < numIterations) {
+    var minValidLoss: Double = Double.PositiveInfinity
+    var bestWeights = initialWeights
+    var breakFlag = false
+    var stepCnt = 0
+
+    while (!converged && i < numIterations && stepCnt < 2) {
       val bcWeights = train_data.context.broadcast(weights)
       // Sample a subset (fraction miniBatchFraction) of the total data
       val sampled_train_data = train_data.sample(false, miniBatchFraction, i)
@@ -187,9 +192,20 @@ object GradientDescentFFM {
           (c1._1 + c2._1, c1._2 + c2._2)
         }) // TODO: add depth level
       val valid_cnt = sampled_valid_data.count()
-      println("iter:" + i + ",tr_loss:" + lSum / train_cnt + ",va_loss:" + valid_lSum / valid_cnt)
+      val valid_loss = valid_lSum / valid_cnt
+      println("iter:" + i + ",tr_loss:" + lSum / train_cnt + ",va_loss:" + valid_loss)
+
+      if(valid_loss < minValidLoss){
+        minValidLoss = valid_loss
+        bestWeights = weights
+        stepCnt = 0
+      }else{
+        //weights = bestWeights
+        //breakFlag = true
+        stepCnt += 1
+      }
     }
-    (weights, stochasticLossHistory.toArray)
+    (bestWeights, stochasticLossHistory.toArray)
   }
 
   /*
