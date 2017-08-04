@@ -162,12 +162,14 @@ object GradientDescentFFM {
       // compute and sum up the subgradients on this subset (this is one map-reduce)
       val (wSum, lSum) = sampled_train_data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
         seqOp = (c, v) => {
-          gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
+          val (w: BDV[Double], loss: Double) = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
             eta, lambda, true, i, solver)
+          (w, loss + c._2)
         },
         combOp = (c1, c2) => {
           (c1._1 + c2._1, c1._2 + c2._2)
         }) // TODO: add depth level
+      val train_cnt = sampled_train_data.count()
 
       i += 1
       weights = Vectors.dense(wSum.toArray.map(_ / slices))
@@ -177,13 +179,15 @@ object GradientDescentFFM {
       val sampled_valid_data = valid_data.sample(false, miniBatchFraction, i)
       val (valid_wSum, valid_lSum) = sampled_valid_data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
         seqOp = (c, v) => {
-          gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
+          val (w: BDV[Double], loss: Double) = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
             eta, lambda, false, i, solver)
+          (w, loss + c._2)
         },
         combOp = (c1, c2) => {
           (c1._1 + c2._1, c1._2 + c2._2)
         }) // TODO: add depth level
-      println("iter:" + i + ",tr_loss:" + lSum / slices + ",va_loss:" + valid_lSum / slices)
+      val valid_cnt = sampled_valid_data.count()
+      println("iter:" + i + ",tr_loss:" + lSum / train_cnt + ",va_loss:" + valid_lSum / valid_cnt)
     }
     (weights, stochasticLossHistory.toArray)
   }

@@ -223,18 +223,13 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
     } else {
       math.log(1 + expnyt)
     }
-    println("t: ", t, " label: ", label, " tr_loss: ", tr_loss, " expnyt: ", expnyt)
     if(do_update){
+      // println("t: ", t, " label: ", label, " tr_loss: ", tr_loss, " expnyt: ", expnyt)
 
       val z = -label * t
       val max_z = math.max(0, z)
       val kappa = -label * math.exp(z - max_z) / (math.exp(z - max_z) + math.exp(0 - max_z))
       //val kappa = -label * expnyt / (1 + expnyt)
-
-      //println("t", t)
-      //println("expnyt", expnyt)
-      //println("tr_loss", tr_loss)
-      //println("kappa", kappa)
 
       val (align0, align1) = if (sgd) {
         (k, m * k)
