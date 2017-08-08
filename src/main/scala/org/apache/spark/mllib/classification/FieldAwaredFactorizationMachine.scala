@@ -232,18 +232,25 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
     val weightsArray: Array[Double] = weights.asInstanceOf[DenseVector].values
     var t = predict(data, weights)
     val expnyt = math.exp(-label * t)
-    val tr_loss = if (expnyt.isInfinite){
+    var tr_loss = if (expnyt.isInfinite){
       -label * t
     } else {
       math.log(1 + expnyt)
     }
+
+    //if (label == 1.0){
+      //tr_loss /= 0.00025497016952045814
+    //}
+
     if(do_update){
       //System.err.println("t: ", t, " label: ", label, " tr_loss: ", tr_loss, " expnyt: ", expnyt)
 
-      val z = -label * t
-      val max_z = math.max(0, z)
-      val kappa = -label * math.exp(z - max_z) / (math.exp(z - max_z) + math.exp(0 - max_z))
-      //val kappa = -label * expnyt / (1 + expnyt)
+      //val z = -label * t
+      //val max_z = math.max(0, z)
+      //var kappa = -label * math.exp(z - max_z) / (math.exp(z - max_z) + math.exp(0 - max_z))
+
+      //val kappa = -label * math.exp(z - max_z) / (math.exp(z - max_z) + math.exp(0 - max_z))
+      val kappa = -label * expnyt / (1 + expnyt)
 
       val (align0, align1) = if (sgd) {
         (k, m * k)
@@ -251,11 +258,10 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
         (k * 2, m * k * 2)
       }
       val valueSize = data.size //feature length
-      val indicesArray = data.map(_._2) //feature index
-      val valueArray: Array[(Int, Double)] = data.map(x => (x._1, x._3))
       var i = 0
       var ii = 0
 
+      //val r0, r1 = 0.00002
       val r0, r1 = 0.0
       var useOld = false
       //val r0 = lambda 
@@ -277,7 +283,6 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
         }
       }
 
-      useOld = false
       for (i <- 0 to valueSize - 1) {
         val (f1, j1, v1) = data(i)
         if (j1 < n && f1 < m) {
@@ -304,7 +309,7 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
               val v: Double = v1 * v2 * r
               val wg1_index: Int = w1_index + k
               val wg2_index: Int = w2_index + k
-              val kappav: Double = kappa * v * r
+              val kappav: Double = kappa * v
               for (d <- 0 to k - 1) {
                 val g1: Double = lambda * weightsArray(w1_index + d) + kappav * weightsArray(w2_index + d)
                 val g2: Double = lambda * weightsArray(w2_index + d) + kappav * weightsArray(w1_index + d)
