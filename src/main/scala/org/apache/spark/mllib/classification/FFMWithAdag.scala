@@ -36,11 +36,10 @@ import scala.util.Random
   * @param eta step size to be used for each iteration
   * @param lambda regularization for pairwise interactions
   * @param normalization whether normalize data
-  * @param random whether randomize data
   * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
   */
 class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double,
-                  normalization: Boolean, random: Boolean, solver: String) extends Serializable {
+                  normalization: Boolean, solver: String) extends Serializable {
   private val k0 = dim._1
   private val k1 = dim._2
   private val k = dim._3
@@ -107,7 +106,7 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
   */
   private def createModel(weights: Vector): FFMModel = {
     //val values = weights.toArray
-    new FFMModel(n, m, dim, n_iters, eta, lambda, normalization, random, weights, sgd)
+    new FFMModel(n, m, dim, n_iters, eta, lambda, normalization, weights, sgd)
   }
 
   /**
@@ -115,17 +114,19 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
   * of FFMNode entries.
   */
 
-  def run(input: RDD[(Double, Array[(Int, Int, Double)])], initWeights: Vector, valid_data: RDD[(Double, Array[(Int, Int, Double)])], miniBatchFraction: Double): FFMModel = {
-    val weights = if(initWeights == null){
+  def run(input: RDD[(Double, Array[(Int, Int, Double)])], initWeights: Option[Vector], valid_data: Option[RDD[(Double, Array[(Int, Int, Double)])]], 
+    miniBatchFraction: Double=1.0, redo: (Int, Int)=(1, 1), weightCol: (Double, Double)=(1.0, 1.0)): FFMModel = {
+    
+    val weights = if(initWeights == None){
       generateInitWeights()
     }else{
-      initWeights
+      initWeights.get
     }
-    val gradient = new FFMGradient(m, n, dim, sgd, normalization)
-    val optimizer = new GradientDescentFFM(gradient, null, k, n_iters, eta, lambda, normalization, random)
+    val gradient = new FFMGradient(m, n, dim, sgd, normalization, weightCol)
+    val optimizer = new GradientDescentFFM(gradient, null, k, n_iters, eta, lambda, normalization)
     optimizer.setMiniBatchFraction(miniBatchFraction)
 
-    val new_weights = optimizer.optimize(input, weights, n_iters, eta, lambda, sgd, valid_data)
+    val new_weights = optimizer.optimize(input, weights, n_iters, eta, lambda, sgd, valid_data, redo)
     createModel(new_weights)
   }
 
@@ -148,14 +149,15 @@ object FFMWithAdag {
   * @param eta step size to be used for each iteration
   * @param lambda regularization for pairwise interactions
   * @param normalization whether normalize data
-  * @param random whether randomize data
   * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
   * @return FFMModel
   */
   def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int,
-    dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double, normalization: Boolean, random: Boolean,
-    solver: String = "sgd", initWeights: Vector=null, valid_data: RDD[(Double, Array[(Int, Int, Double)])]=null, miniBatchFraction: Double=1.0): FFMModel = {
-    new FFMWithAdag(m, n, dim, n_iters, eta, lambda, normalization, random, solver)
-    .run(data, initWeights, valid_data, miniBatchFraction)
+    dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double, normalization: Boolean, 
+    solver: String = "sgd", initWeights: Option[Vector]=None, valid_data: Option[RDD[(Double, Array[(Int, Int, Double)])]]=None, 
+    miniBatchFraction: Double=1.0, redo: (Int, Int)=(1, 1), weightCol: (Double, Double)=(1.0, 1.0)): FFMModel = {
+
+    new FFMWithAdag(m, n, dim, n_iters, eta, lambda, normalization, solver)
+    .run(data, initWeights, valid_data, miniBatchFraction, redo, weightCol)
   }
 }
