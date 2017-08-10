@@ -32,7 +32,6 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
                           k: Int, n_iters: Int, eta: Double, lambda: Double,
                           normalization: Boolean) extends Optimizer {
 
-  val sgd = true
   private var stepSize: Double = 1.0
   private var numIterations: Int = 100
   private var regParam: Double = 0.0
@@ -126,7 +125,7 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
 
   }
   def optimize(data: RDD[(Double, Array[(Int, Int, Double)])], initialWeights: Vector,
-               n_iters: Int, eta: Double, lambda: Double, solver: Boolean, 
+               n_iters: Int, eta: Double, lambda: Double, solver: String, 
                validData: Option[RDD[(Double, Array[(Int, Int, Double)])]], redo: (Int, Int)=(1, 1)): Vector = {
 
     val (weights, _) = GradientDescentFFM.runMiniBatchAdag(data, gradient, initialWeights, n_iters, eta, lambda, solver, validData, miniBatchFraction, 0.0, redo)
@@ -144,7 +143,7 @@ object GradientDescentFFM {
                     n_iters: Int,
                     eta: Double,
                     lambda: Double,
-                    solver: Boolean,
+                    solver: String,
                     validData: Option[RDD[(Double, Array[(Int, Int, Double)])]],
                     miniBatchFraction: Double = 1.0,
                     convergenceTol: Double = 0.0, 

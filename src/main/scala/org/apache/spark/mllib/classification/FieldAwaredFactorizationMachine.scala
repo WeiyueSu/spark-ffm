@@ -41,7 +41,7 @@ import scala.util.Random
 * @param lambda regularization for pairwise interations
 * @param isNorm whether normalize data
 * @param weights weights of FFMModel
-* @param sgd "true": parallelizedSGD, parallelizedAdaGrad would be used otherwise
+* @param solver "true": parallelizedSGD, parallelizedAdaGrad would be used otherwise
 */
 class FFMModel(
   numFeatures: Int,
@@ -52,7 +52,7 @@ class FFMModel(
   lambda: Double,
   isNorm: Boolean, 
   initWeights: Vector,
-  sgd: Boolean = true ) 
+  solver: String="adag" ) 
 extends Serializable {
 
   private var n: Int = numFeatures
@@ -87,9 +87,6 @@ extends Serializable {
     return order
   }
 
-  def setOptimizer(op: String): Boolean = {
-    if("sgd" == op) true else false
-  }
 
   def predict(data: Array[(Int, Int, Double)]): Double = {
 
@@ -101,25 +98,25 @@ extends Serializable {
     val sqrt_r = math.sqrt(r)
 
     var t = 0.0
-    if (k0){
-      if (sgd){
-        t += weights(weights.size - 1)
-      }else{
-        t += weights(weights.size - 2)
+    if (k0) {
+      solver match {
+        case "sgd" => t += weights(weights.size - 1)
+        case "adag" => t += weights(weights.size - 2)
+        case "ftrl" => t += weights(weights.size - 3)
       }
     }
 
-    val (align0, align1) = if(sgd) {
-      (k, m * k)
-    } else {
-      (k * 2, m * k * 2)
+    val (align0, align1) = solver match {
+      case "sgd" => (k, m * k)
+      case "adag" => (k * 2, m * k * 2)
+      case "ftrl" => (k * 3, m * k * 3)
     }
 
     // j: feature, f: field, v: value
     val valueSize = data.size //feature length
     var i = 0
     var ii = 0
-    val pos = if (sgd) n * m * k else n * m * k * 2
+    val pos = n * align1
     // j: feature, f: field, v: value
     for (i <- 0 to valueSize - 1) {
       val (f1, j1, v1) = data(i)
@@ -144,7 +141,7 @@ extends Serializable {
   }
 }
 
-class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = true, isNorm: Boolean = true, 
+class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), solver: String="adag", isNorm: Boolean = true, 
                   weightCol: (Double, Double)=(1.0, 1.0)) extends Gradient {
 
   private val k0 = dim._1
@@ -156,23 +153,24 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
     val sqrt_r = math.sqrt(r)
 
     var t = 0.0
-    if (k0){
-      if (sgd){
-        t += weights(weights.size - 1)
-      }else{
-        t += weights(weights.size - 2)
+    if (k0) {
+      solver match {
+        case "sgd" => t += weights(weights.size - 1)
+        case "adag" => t += weights(weights.size - 2)
+        case "ftrl" => t += weights(weights.size - 3)
       }
     }
 
-    val (align0, align1) = if(sgd) {
-      (k, m * k)
-    } else {
-      (k * 2, m * k * 2)
+    val (align0, align1) = solver match {
+      case "sgd" => (k, m * k)
+      case "adag" => (k * 2, m * k * 2)
+      case "ftrl" => (k * 3, m * k * 3)
     }
+
     val valueSize = data.size //feature length
     var i = 0
     var ii = 0
-    val pos = if (sgd) n * m * k else n * m * k * 2
+    val pos = n * align1
     // j: feature, f: field, v: value
     for (i <- 0 to valueSize - 1) {
       val (f1, j1, v1) = data(i)
@@ -212,7 +210,7 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
     eta: Double, 
     lambda: Double,
     do_update: Boolean, 
-    solver: Boolean = true): (BDV[Double], Double) = {
+    solver: String="adag"): (BDV[Double], Double) = {
 
     val r = if(isNorm){
       1 / data.map(x => math.pow(x._3, 2)).sum
@@ -241,30 +239,46 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
       
       val kappa = -label * expnyt / (1 + expnyt) * weightC
 
-      val (align0, align1) = if (sgd) {
-        (k, m * k)
-      } else {
-        (k * 2, m * k * 2)
+      val (align0, align1) = solver match {
+        case "sgd" => (k, m * k)
+        case "adag" => (k * 2, m * k * 2)
+        case "ftrl" => (k * 3, m * k * 3)
       }
       val valueSize = data.size //feature length
       var i = 0
       var ii = 0
 
       val r0, r1 = 0.0
+      // parameter for ftrl
+      val alpha, beta = 0.1
+      val lambda1, lambda2 = 0.01
       //val r0 = lambda 
       //val r1 = lambda
-      val pos = if (sgd) n * m * k else n * m * k * 2
+      val pos = n * align1
 
       // oldCode: weightsArray(weightsArray.length - 2) -= eta * (kappa + r0 * weightsArray(weightsArray.length - 2))
       if(k0) {
-        if(sgd){
-          val gk0: Double = kappa + r0 * weightsArray(weightsArray.length - 1)
-          weightsArray(weightsArray.length - 1) -= eta * gk0
-        }else{
-          val gk0: Double = kappa + r0 * weightsArray(weightsArray.length - 2)
-          val wgk0: Double = weightsArray(weightsArray.length - 1) + gk0 * gk0
-          weightsArray(weightsArray.length - 2) -= eta / (math.sqrt(wgk0)) * gk0
-          weightsArray(weightsArray.length - 1) = wgk0
+        solver match {
+          case "sgd" => {
+            val gk0: Double = kappa + r0 * weightsArray(weightsArray.length - 1)
+            weightsArray(weightsArray.length - 1) -= eta * gk0
+          }
+          case "adag" => {
+            val gk0: Double = kappa + r0 * weightsArray(weightsArray.length - 2)
+            val wgk0: Double = weightsArray(weightsArray.length - 1) + gk0 * gk0
+            weightsArray(weightsArray.length - 2) -= eta / (math.sqrt(wgk0)) * gk0
+            weightsArray(weightsArray.length - 1) = wgk0
+          }
+          case "ftrl" => {
+            val gk0: Double = kappa
+            val wi = weightsArray.length - 3
+            val zi = wi + 1
+            val ni = zi + 1
+            weightsArray(zi) += gk0 - weightsArray(wi) / alpha * (math.sqrt(weightsArray(ni) + math.pow(gk0, 2)) - math.sqrt(weightsArray(ni)))
+            weightsArray(ni) += math.pow(gk0, 2)
+            weightsArray(wi) = if (math.abs(weightsArray(zi)) <= lambda1) 0
+                                else (math.signum(weights(zi)) * lambda1 - weights(zi)) / ((beta + math.sqrt(weightsArray(ni))) / alpha + lambda2)
+          }
         }
       }
 
@@ -273,14 +287,27 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
         if (j1 < n && f1 < m) {
           // oldCod: weightsArray(pos + j1) -= eta * (v1 * kappa * sqrt_r + r1 * weightsArray(pos + j1))
           if(k1) {
-            val gk1 = v1 * kappa * sqrt_r + r1 * weightsArray(pos + j1)
-            if (sgd){
-              weightsArray(pos + j1) -= eta * gk1
-            }else{
-              val wgk1: Double = weightsArray(pos + j1 + n) + gk1 * gk1
-              weightsArray(pos + j1) -= eta / (math.sqrt(wgk1)) * gk1
-              weightsArray(pos + j1 + n) = wgk1
-              //System.err.println("v1: ", v1, "gk1: ", gk1, " wgk1: ", wgk1, " w: ", weightsArray(pos + j1),  " G: ", weightsArray(pos + j1 + n))
+            solver match {
+              case "sgd" => {
+                val gk1 = v1 * kappa * sqrt_r + r1 * weightsArray(pos + j1)
+                weightsArray(pos + j1) -= eta * gk1
+              }
+              case "adag" => {
+                val gk1 = v1 * kappa * sqrt_r + r1 * weightsArray(pos + j1)
+                val wgk1: Double = weightsArray(pos + j1 + n) + gk1 * gk1
+                weightsArray(pos + j1) -= eta / (math.sqrt(wgk1)) * gk1
+                weightsArray(pos + j1 + n) = wgk1
+              }
+              case "ftrl" => {
+                val wi = pos + j1
+                val zi = wi + n
+                val ni = zi + n
+                val gk1 = v1 * kappa * sqrt_r
+                weightsArray(zi) += gk1 - weightsArray(wi) / alpha * (math.sqrt(weightsArray(ni) + math.pow(gk1, 2)) - math.sqrt(weightsArray(ni)))
+                weightsArray(ni) += math.pow(gk1, 2)
+                weightsArray(wi) = if (math.abs(weightsArray(zi)) <= lambda1) 0
+                                    else (math.signum(weights(zi)) * lambda1 - weights(zi)) / ((beta + math.sqrt(weightsArray(ni))) / alpha + lambda2)
+              }
             }
           }
           for (ii <- i + 1 to valueSize - 1) {
@@ -293,18 +320,44 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
               val wg2_index: Int = w2_index + k
               val kappav: Double = kappa * v
               for (d <- 0 to k - 1) {
-                val g1: Double = lambda * weightsArray(w1_index + d) + kappav * weightsArray(w2_index + d)
-                val g2: Double = lambda * weightsArray(w2_index + d) + kappav * weightsArray(w1_index + d)
-                if (sgd) {
-                  weightsArray(w1_index + d) -= eta * g1
-                  weightsArray(w2_index + d) -= eta * g2
-                } else {
-                  val wg1: Double = weightsArray(wg1_index + d) + g1 * g1
-                  val wg2: Double = weightsArray(wg2_index + d) + g2 * g2
-                  weightsArray(w1_index + d) -= eta / (math.sqrt(wg1)) * g1
-                  weightsArray(w2_index + d) -= eta / (math.sqrt(wg2)) * g2
-                  weightsArray(wg1_index + d) = wg1
-                  weightsArray(wg2_index + d) = wg2
+                solver match {
+                  case "sgd" => {
+                    val g1: Double = lambda * weightsArray(w1_index + d) + kappav * weightsArray(w2_index + d)
+                    val g2: Double = lambda * weightsArray(w2_index + d) + kappav * weightsArray(w1_index + d)
+                    weightsArray(w1_index + d) -= eta * g1
+                    weightsArray(w2_index + d) -= eta * g2
+                  }
+                  case "adag" => {
+                    val g1: Double = lambda * weightsArray(w1_index + d) + kappav * weightsArray(w2_index + d)
+                    val g2: Double = lambda * weightsArray(w2_index + d) + kappav * weightsArray(w1_index + d)
+                    val wg1: Double = weightsArray(wg1_index + d) + g1 * g1
+                    val wg2: Double = weightsArray(wg2_index + d) + g2 * g2
+                    weightsArray(w1_index + d) -= eta / (math.sqrt(wg1)) * g1
+                    weightsArray(w2_index + d) -= eta / (math.sqrt(wg2)) * g2
+                    weightsArray(wg1_index + d) = wg1
+                    weightsArray(wg2_index + d) = wg2
+                  }
+                  case "ftrl" => {
+                    val g1: Double = kappav * weightsArray(w2_index + d)
+                    val g2: Double = kappav * weightsArray(w1_index + d)
+                    val wi1 = w1_index + d
+                    val wi2 = w2_index + d
+                    val zi1 = wi1 + k
+                    val zi2 = wi2 + k
+                    val ni1 = zi1 + k
+                    val ni2 = zi2 + k
+                    weightsArray(zi1) += g1 - weightsArray(wi1) / alpha * (math.sqrt(weightsArray(ni1) + math.pow(g1, 2)) - math.sqrt(weightsArray(ni1)))
+                    weightsArray(ni1) += math.pow(g1, 2)
+                    weightsArray(wi1) = if (math.abs(weightsArray(zi1)) <= lambda1) 0
+                                        else (math.signum(weights(zi1)) * lambda1 - weights(zi1)) / ((beta + math.sqrt(weightsArray(ni1))) / alpha + lambda2)
+
+                    weightsArray(zi2) += g2 - weightsArray(wi2) / alpha * (math.sqrt(weightsArray(ni2) + math.pow(g2, 2)) - math.sqrt(weightsArray(ni2)))
+                    weightsArray(ni2) += math.pow(g2, 2)
+                    weightsArray(wi2) = if (math.abs(weightsArray(zi2)) <= lambda1) 0
+                                        else (math.signum(weights(zi2)) * lambda1 - weights(zi2)) / ((beta + math.sqrt(weightsArray(ni2))) / alpha + lambda2)
+
+                  }
+
 
                 }
               }

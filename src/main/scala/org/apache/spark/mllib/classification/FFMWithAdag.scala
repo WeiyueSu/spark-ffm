@@ -36,14 +36,13 @@ import scala.util.Random
   * @param eta step size to be used for each iteration
   * @param lambda regularization for pairwise interactions
   * @param normalization whether normalize data
-  * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
+  * @param solver "solver": parallelizedSGD, parallelizedAdaGrad would be used otherwise
   */
 class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double,
                   normalization: Boolean, solver: String) extends Serializable {
   private val k0 = dim._1
   private val k1 = dim._2
   private val k = dim._3
-  private val sgd = setOptimizer(solver)
 
   println("get numFields:" + m + ",nunFeatures:" + n + ",numFactors:" + k)
   private def generateInitWeights(): Vector = {
@@ -57,45 +56,67 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
       case(false, false) =>
         (0, 0)
     }
-    val W = if(sgd){
-      val tmpSize = n * m * k + num_k1 + num_k0
-      println("allocating:" + tmpSize)
-      new Array[Double](tmpSize)
-    } else {
-      val tmpSize = n * m * k * 2 + num_k1 * 2 + num_k0 * 2
-      println("allocating:" + tmpSize)
-      new Array[Double](tmpSize)
+
+    val tmpSize = solver match {
+      case "sgd" => n * m * k + num_k1 + num_k0
+      case "adag" => 2 * (n * m * k + num_k1 + num_k0)
+      case "ftrl" => 3 * (n * m * k + num_k1 + num_k0)
     }
+
+    println("allocating:" + tmpSize)
+    val W = new Array[Double](tmpSize)
+
     val coef = 1.0 / Math.sqrt(k)
     val random = new Random()
     var position = 0
-    if(sgd) {
-      for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to k - 1) {
-        W(position) = coef * random.nextDouble()
-        position += 1
+    solver match {
+      case "sgd" => {
+        for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to k - 1) {
+          W(position) = coef * random.nextDouble()
+          position += 1
+        }
+        if (k1) {
+          for (p <- 0 to n - 1) {
+            W(position) = 0.0
+            position += 1
+          }
+        }
+        if (k0) W(position) = 0.0
       }
-      if (k1) {
-        for (p <- 0 to n - 1) {
+      case "adag" => {
+        for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to 2 * k - 1) {
+          W(position) = if (d < k) coef * random.nextDouble() else 1.0
+          position += 1
+        }
+        if (k1) {
+          for (p <- 0 to 2 * n - 1) {
+            W(position) = if (p < n) 0.0 else 1.0
+            position += 1
+          }
+        }
+        if (k0){
+          W(position) = 0.0
+          position += 1
+          W(position) = 1.0
+        }
+      }
+      case "ftrl" => {
+        for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to 3 * k - 1) {
           W(position) = 0.0
           position += 1
         }
-      }
-      if (k0) W(position) = 0.0
-    } else {
-      for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to 2 * k - 1) {
-        W(position) = if (d < k) coef * random.nextDouble() else 1.0
-        position += 1
-      }
-      if (k1) {
-        for (p <- 0 to 2 * n - 1) {
-          W(position) = if (p < n) 0.0 else 1.0
-          position += 1
+        if (k1) {
+          for (p <- 0 to 3 * n - 1) {
+            W(position) = 0.0
+            position += 1
+          }
         }
-      }
-      if (k0){
-        W(position) = 0.0
-        position += 1
-        W(position) = 1.0
+        if (k0){
+          for (p <- 0 to 2) {
+            W(position) = 0.0
+            position += 1
+          }
+        }
       }
     }
     Vectors.dense(W)
@@ -106,7 +127,7 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
   */
   private def createModel(weights: Vector): FFMModel = {
     //val values = weights.toArray
-    new FFMModel(n, m, dim, n_iters, eta, lambda, normalization, weights, sgd)
+    new FFMModel(n, m, dim, n_iters, eta, lambda, normalization, weights, solver)
   }
 
   /**
@@ -122,16 +143,12 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
     }else{
       initWeights.get
     }
-    val gradient = new FFMGradient(m, n, dim, sgd, normalization, weightCol)
+    val gradient = new FFMGradient(m, n, dim, solver, normalization, weightCol)
     val optimizer = new GradientDescentFFM(gradient, null, k, n_iters, eta, lambda, normalization)
     optimizer.setMiniBatchFraction(miniBatchFraction)
 
-    val new_weights = optimizer.optimize(input, weights, n_iters, eta, lambda, sgd, valid_data, redo)
+    val new_weights = optimizer.optimize(input, weights, n_iters, eta, lambda, solver, valid_data, redo)
     createModel(new_weights)
-  }
-
-  def setOptimizer(op: String): Boolean = {
-    if("sgd" == op) true else false
   }
 
 }
@@ -149,12 +166,12 @@ object FFMWithAdag {
   * @param eta step size to be used for each iteration
   * @param lambda regularization for pairwise interactions
   * @param normalization whether normalize data
-  * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
+  * @param solver "solver": parallelizedSGD, parallelizedAdaGrad would be used otherwise
   * @return FFMModel
   */
   def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int,
     dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double, normalization: Boolean, 
-    solver: String = "sgd", initWeights: Option[Vector]=None, valid_data: Option[RDD[(Double, Array[(Int, Int, Double)])]]=None, 
+    solver: String = "adag", initWeights: Option[Vector]=None, valid_data: Option[RDD[(Double, Array[(Int, Int, Double)])]]=None, 
     miniBatchFraction: Double=1.0, redo: (Int, Int)=(1, 1), weightCol: (Double, Double)=(1.0, 1.0)): FFMModel = {
 
     new FFMWithAdag(m, n, dim, n_iters, eta, lambda, normalization, solver)
