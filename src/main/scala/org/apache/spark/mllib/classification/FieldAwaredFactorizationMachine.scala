@@ -18,14 +18,20 @@
 package org.apache.spark.mllib.classification
 
 import java.io._
-
+import org.json4s.JsonDSL._
+import org.json4s.jackson.JsonMethods._
+import org.apache.hadoop.fs.Path
 import breeze.linalg.{DenseVector => BDV}
 
 import org.apache.spark.mllib.linalg.{DenseVector, Vector}
 import org.apache.spark.mllib.optimization.Gradient
 
 import scala.util.Random
+import org.apache.spark.mllib.util.{DataValidators, Loader, Saveable}
+import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.sql.{Row, SparkSession}
 
+case class Data(weights: Vector, n: Int, m: Int, k: Int, k0: Boolean, k1: Boolean, normalization: Boolean, solver: String)
 /**
 * Created by vincent on 16-12-19.
 */
@@ -36,9 +42,6 @@ import scala.util.Random
 * @param dim A (Boolean,Boolean,Int) 3-Tuple stands for whether the global bias term should be used, whether the
 *            one-way interactions should be used, and the number of factors that are used for pairwise
 *            interactions, respectively.
-* @param n_iters number of iterations
-* @param eta step size to be used for each iteration
-* @param lambda regularization for pairwise interations
 * @param isNorm whether normalize data
 * @param weights weights of FFMModel
 * @param solver "true": parallelizedSGD, parallelizedAdaGrad would be used otherwise
@@ -47,9 +50,6 @@ class FFMModel(
   numFeatures: Int,
   numFields: Int,
   dim: (Boolean, Boolean, Int),
-  n_iters: Int,
-  eta: Double,
-  lambda: Double,
   isNorm: Boolean, 
   initWeights: Vector,
   solver: String="adag" ) 
@@ -85,6 +85,17 @@ extends Serializable {
       }
     }
     return order
+  }
+
+
+  def save(sc: SparkContext, path: String) {
+    val spark = SparkSession.builder().sparkContext(sc).getOrCreate()
+    val metadata = compact(render(("class" -> this.getClass.getName) ~ ("version" -> "1.0")))
+    sc.parallelize(Seq(metadata), 1).saveAsTextFile(Loader.metadataPath(path))
+
+    // Create Parquet data.
+    val data = Data(weights, n, m, k, k0, k1, normalization, solver)
+    spark.createDataFrame(Seq(data)).repartition(1).write.parquet(Loader.dataPath(path))
   }
 
 
@@ -139,6 +150,27 @@ extends Serializable {
     }
     t
   }
+}
+
+
+object FFMModel {
+
+  def load(sc: SparkContext, path: String): FFMModel = {
+    val dataPath = Loader.dataPath(path)
+    val spark = SparkSession.builder().sparkContext(sc).getOrCreate()
+    val dataRDD = spark.read.parquet(dataPath)
+    val dataArray = dataRDD.select("weights", "n", "m", "k", "k0", "k1", "normalization", "solver").take(1)
+    assert(dataArray.length == 1, s"Unable to load data from: $dataPath")
+    val data = dataArray(0)
+    assert(data.size == 8, s"Unable to load data from: $dataPath")
+    val (weights, n, m, k, k0, k1, normalization, solver) = data match {
+      case Row(weights: Vector, n: Int, m: Int, k: Int, k0: Boolean, k1: Boolean, normalization: Boolean, solver: String) =>
+        (weights, n, m, k, k0, k1, normalization, solver)
+    }
+    val args = Data(weights, n, m, k, k0, k1, normalization, solver)
+    new FFMModel(args.n, args.m, (args.k0, args.k1, args.k), args.normalization, args.weights, args.solver)
+  }
+
 }
 
 class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), solver: String="adag", isNorm: Boolean = true, 
@@ -250,8 +282,8 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), solver: String="
 
       val r0, r1 = 0.0
       // parameter for ftrl
-      val alpha, beta = 0.1
-      val lambda1, lambda2 = 0.01
+      val alpha, beta = eta
+      val lambda1, lambda2 = lambda
       //val r0 = lambda 
       //val r1 = lambda
       val pos = n * align1
@@ -348,17 +380,12 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), solver: String="
                     val ni2 = zi2 + k
                     weightsArray(zi1) += g1 - weightsArray(wi1) / alpha * (math.sqrt(weightsArray(ni1) + math.pow(g1, 2)) - math.sqrt(weightsArray(ni1)))
                     weightsArray(ni1) += math.pow(g1, 2)
-                    weightsArray(wi1) = if (math.abs(weightsArray(zi1)) <= lambda1) 0
-                                        else (math.signum(weights(zi1)) * lambda1 - weights(zi1)) / ((beta + math.sqrt(weightsArray(ni1))) / alpha + lambda2)
+                    weightsArray(wi1) = (math.signum(weights(zi1)) * lambda1 - weights(zi1)) / ((beta + math.sqrt(weightsArray(ni1))) / alpha + lambda2)
 
                     weightsArray(zi2) += g2 - weightsArray(wi2) / alpha * (math.sqrt(weightsArray(ni2) + math.pow(g2, 2)) - math.sqrt(weightsArray(ni2)))
                     weightsArray(ni2) += math.pow(g2, 2)
-                    weightsArray(wi2) = if (math.abs(weightsArray(zi2)) <= lambda1) 0
-                                        else (math.signum(weights(zi2)) * lambda1 - weights(zi2)) / ((beta + math.sqrt(weightsArray(ni2))) / alpha + lambda2)
-
+                    weightsArray(wi2) = (math.signum(weights(zi2)) * lambda1 - weights(zi2)) / ((beta + math.sqrt(weightsArray(ni2))) / alpha + lambda2)
                   }
-
-
                 }
               }
             }

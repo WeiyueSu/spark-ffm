@@ -22,7 +22,7 @@ import org.apache.spark.annotation.Experimental
 import org.apache.spark.mllib.classification._
 import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors}
 import org.apache.spark.rdd.RDD
-
+import scala.util.Random
 import scala.collection.mutable.ArrayBuffer
 
 /**
@@ -126,7 +126,7 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
   }
   def optimize(data: RDD[(Double, Array[(Int, Int, Double)])], initialWeights: Vector,
                n_iters: Int, eta: Double, lambda: Double, solver: String, 
-               validData: Option[RDD[(Double, Array[(Int, Int, Double)])]], redo: (Int, Int)=(1, 1)): Vector = {
+               validData: Option[RDD[(Double, Array[(Int, Int, Double)])]], redo: (Double, Double)=(1.0, 1.0)): Vector = {
 
     val (weights, _) = GradientDescentFFM.runMiniBatchAdag(data, gradient, initialWeights, n_iters, eta, lambda, solver, validData, miniBatchFraction, 0.0, redo)
     weights
@@ -136,6 +136,10 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
 }
 
 object GradientDescentFFM {
+  def shuffle(data: RDD[(Double, Array[(Int, Int, Double)])]): RDD[(Double, Array[(Int, Int, Double)])] = {
+    data.map(x => (new Random().nextDouble(), x)).sortByKey().map(x => x._2)
+  }
+
   def runMiniBatchAdag(
                     trainData: RDD[(Double, Array[(Int, Int, Double)])],
                     gradient: Gradient,
@@ -147,7 +151,7 @@ object GradientDescentFFM {
                     validData: Option[RDD[(Double, Array[(Int, Int, Double)])]],
                     miniBatchFraction: Double = 1.0,
                     convergenceTol: Double = 0.0, 
-                    redo: (Int, Int)=(1, 1)) : (Vector, Array[Double]) = {
+                    redo: (Double, Double)=(1.0, 1.0)) : (Vector, Array[Double]) = {
     val numIterations = n_iters
     val stochasticLossHistory = new ArrayBuffer[Double](numIterations)
     var weights = initialWeights
@@ -160,28 +164,51 @@ object GradientDescentFFM {
     var bestWeights = initialWeights
     var stepCnt = 0
 
+    val trainPosiData = trainData.filter(x => x._1 == 1.0)
+    val trainNegaData = trainData.filter(x => x._1 != 1.0)
+
+    val (validPosiData, validNegaData) = if (validData != None){
+      (Some(validData.get.filter(x => x._1 == 1.0)), Some(validData.get.filter(x => x._1 != 1.0)))
+    }else{
+      (None, None)
+    }
+
     while (!converged && i < numIterations && stepCnt < 2) {
       val bcWeights = trainData.context.broadcast(weights)
       // Sample a subset (fraction miniBatchFraction) of the total data
-      val sampledTrainData = trainData.sample(false, miniBatchFraction, i)
+      val sampledTrainData = shuffle(trainPosiData.sample(redo._1 > 1.0, redo._1, i).union(trainNegaData.sample(redo._2 > 1.0, redo._2, i)))
+      //val sampledTrainData = trainData.sample(false, miniBatchFraction, i)
       // compute and sum up the subgradients on this subset (this is one map-reduce)
       val (trainWSum, trainLossSum) = sampledTrainData.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
         seqOp = (c, v) => {
-          var w: BDV[Double] = c._1
-          var loss: Double = c._2
-          val iters: Int = if(v._1 == 1.0) redo._1 else redo._2
-          for(iter <- 1 to iters){
-            val result = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(w), eta, lambda, true, solver)
-            w = result._1
-            loss += result._2
+          val (w, loss) = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1), eta, lambda, true, solver)
+          (w, loss + c._2)
+          /*
+          val ratio: Double = if(v._1 == 1.0) redo._1 else redo._2
+          if (ratio >= 1){
+            val iters = ratio.toInt
+            var w: BDV[Double] = c._1
+            var loss: Double = c._2
+            for(iter <- 1 to iters){
+              val result = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(w), eta, lambda, true, solver)
+              w = result._1
+              loss += result._2
+            }
+            (w, loss)
+          }else if(new Random().nextDouble() < ratio){
+            val result = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1), eta, lambda, true, solver)
+            (result._1, c._2 + result._2)
+          }else{
+            c
           }
-          (w, loss)
+          */
         },
         combOp = (c1, c2) => {
           (c1._1 + c2._1, c1._2 + c2._2)
         }) // TODO: add depth level
+      //val trainCnt = sampledTrainData.filter(x => x._1 == 1.0).count() * redo._1 + 
+                      //sampledTrainData.filter(x => x._1 != 1.0).count() * redo._2  
       val trainCnt = sampledTrainData.count()
-
       i += 1
       weights = Vectors.dense(trainWSum.toArray.map(_ / slices))
       stochasticLossHistory += trainLossSum / trainCnt
@@ -189,26 +216,41 @@ object GradientDescentFFM {
 
       if (validData == None){
         println("iter:" + i + ",tr_loss:" + trainLoss)
-
       }else{
-        val sampledValidData = validData.get.sample(false, miniBatchFraction, i)
+        val sampledValidData = shuffle(validPosiData.get.sample(redo._1 > 1.0, redo._1, i).union(validNegaData.get.sample(redo._2 > 1.0, redo._2, i)))
+        //val sampledValidData = validData.get.sample(false, miniBatchFraction, i)
         val (validWSum, validLossSum) = sampledValidData.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
           seqOp = (c, v) => {
-            var w: BDV[Double] = c._1
-            var loss: Double = c._2
-            val iters: Int = if(v._1 == 1.0) redo._1 else redo._2
-            for(iter <- 1 to iters){
-              val result = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(w), eta, lambda, false, solver)
-              w = result._1
-              loss += result._2
+            val (w, loss) = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1), eta, lambda, false, solver)
+            (w, loss + c._2)
+            /*
+            val ratio: Double = if(v._1 == 1.0) redo._1 else redo._2
+            if (ratio >= 1){
+              val iters = ratio.toInt
+              var w: BDV[Double] = c._1
+              var loss: Double = c._2
+              for(iter <- 1 to iters){
+                val result = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(w), eta, lambda, false, solver)
+                w = result._1
+                loss += result._2
+              }
+              (w, loss)
+            }else if(new Random().nextDouble() < ratio){
+              val result = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1), eta, lambda, false, solver)
+              (result._1, c._2 + result._2)
+            }else{
+              c
             }
-            (w, loss)
-
+            */
           },
           combOp = (c1, c2) => {
             (c1._1 + c2._1, c1._2 + c2._2)
           }) // TODO: add depth level
-        val validCnt = sampledValidData.count()
+
+        val validCnt = sampledTrainData.count()
+        //val validCnt = sampledValidData.filter(x => x._1 == 1.0).count() * redo._1 + 
+                        //sampledValidData.filter(x => x._1 != 1.0).count() * redo._2  
+
         val validLoss = validLossSum / validCnt
         println("iter:" + i + ",tr_loss:" + trainLoss + ",va_loss:" + validLoss)
 

@@ -85,7 +85,7 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
       }
       case "adag" => {
         for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to 2 * k - 1) {
-          W(position) = if (d < k) coef * random.nextDouble() else 1.0
+          W(position) = if (d < k) 2 * coef * random.nextDouble() - coef else 1.0
           position += 1
         }
         if (k1) {
@@ -102,7 +102,7 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
       }
       case "ftrl" => {
         for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to 3 * k - 1) {
-          W(position) = 0.0
+          W(position) = if (d < k) coef * random.nextDouble() else 1.0
           position += 1
         }
         if (k1) {
@@ -127,7 +127,7 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
   */
   private def createModel(weights: Vector): FFMModel = {
     //val values = weights.toArray
-    new FFMModel(n, m, dim, n_iters, eta, lambda, normalization, weights, solver)
+    new FFMModel(n, m, dim, normalization, weights, solver)
   }
 
   /**
@@ -136,7 +136,7 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
   */
 
   def run(input: RDD[(Double, Array[(Int, Int, Double)])], initWeights: Option[Vector], valid_data: Option[RDD[(Double, Array[(Int, Int, Double)])]], 
-    miniBatchFraction: Double=1.0, redo: (Int, Int)=(1, 1), weightCol: (Double, Double)=(1.0, 1.0)): FFMModel = {
+    miniBatchFraction: Double=1.0, redo: (Double, Double)=(1.0, 1.0), weightCol: (Double, Double)=(1.0, 1.0)): FFMModel = {
     
     val weights = if(initWeights == None){
       generateInitWeights()
@@ -172,7 +172,7 @@ object FFMWithAdag {
   def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int,
     dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double, normalization: Boolean, 
     solver: String = "adag", initWeights: Option[Vector]=None, valid_data: Option[RDD[(Double, Array[(Int, Int, Double)])]]=None, 
-    miniBatchFraction: Double=1.0, redo: (Int, Int)=(1, 1), weightCol: (Double, Double)=(1.0, 1.0)): FFMModel = {
+    miniBatchFraction: Double=1.0, redo: (Double, Double)=(1.0, 1.0), weightCol: (Double, Double)=(1.0, 1.0)): FFMModel = {
 
     new FFMWithAdag(m, n, dim, n_iters, eta, lambda, normalization, solver)
     .run(data, initWeights, valid_data, miniBatchFraction, redo, weightCol)

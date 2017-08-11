@@ -5,7 +5,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
 object FFMLoader extends Serializable {
-  def load_ffm(sc: SparkContext, data_path: String, doBalance: Boolean=false, doShuffle: Boolean=false, balanceRatio: (Int, Int)=(1, 1)): RDD[(Double, Array[(Int, Int, Double)])] = {
+  def load_ffm(sc: SparkContext, data_path: String, doBalance: Boolean=false, doShuffle: Boolean=false, balanceRatio: (Double, Double)=(1.0, 1.0)): RDD[(Double, Array[(Int, Int, Double)])] = {
     var data = sc.textFile(data_path).map(_.split(" ")).map(x => {
         val y = if(x(0).toInt > 0 ) 1.0 else -1.0
         val nodeArray: Array[(Int, Int, Double)] = x.drop(1).map(_.split(":")).map(x => {
@@ -22,10 +22,16 @@ object FFMLoader extends Serializable {
     data
   }
 
-  def balance(data: RDD[(Double, Array[(Int, Int, Double)])], balanceRatio: (Int, Int)=(1, 1)): RDD[(Double, Array[(Int, Int, Double)])] = {
+  def balance(data: RDD[(Double, Array[(Int, Int, Double)])], balanceRatio: (Double, Double)=(1.0, 1.0)): RDD[(Double, Array[(Int, Int, Double)])] = {
     data.flatMap(x => {
-        val num: Int = if (x._1 == 1.0) balanceRatio._1 else balanceRatio._2
-        Array.fill[(Double, Array[(Int, Int, Double)])](num)(x)
+        val ratio: Double = if (x._1 == 1.0) balanceRatio._1 else balanceRatio._2
+        if(ratio >= 1){
+          Array.fill[(Double, Array[(Int, Int, Double)])](ratio.toInt)(x)
+        }else if(new Random().nextDouble() < ratio){
+          Array[(Double, Array[(Int, Int, Double)])](x)
+        }else{
+          new Array[(Double, Array[(Int, Int, Double)])](0)
+        }
       })
   }
 
