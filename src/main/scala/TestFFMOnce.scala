@@ -27,12 +27,15 @@ object TestFFMOnce extends App {
     val n = 7672
     val partition_num = args(7).toInt
 
-    val train_data = FFMLoader.load_ffm(sc, "/user/gzsuweiyue/Data/netease_ctr/ffm/train_n10xp_balance.ffm", doShuffle=args(11).toBoolean).repartition(partition_num)
-    val valid_data = FFMLoader.load_ffm(sc, "/user/gzsuweiyue/Data/netease_ctr/ffm/valid_n10xp_balance.ffm", doShuffle=args(11).toBoolean).repartition(partition_num)
+    val train_data = FFMLoader.load_ffm(sc, "/user/gzsuweiyue/Data/netease_ctr/ffm/train_n100xp_balance.ffm", args(13).toDouble != args(14).toDouble, args(11).toBoolean, (args(13).toDouble, args(14).toDouble)).repartition(partition_num)
+    val valid_data = FFMLoader.load_ffm(sc, "/user/gzsuweiyue/Data/netease_ctr/ffm/valid_n100xp_balance.ffm", args(13).toDouble != args(14).toDouble, doShuffle=args(11).toBoolean, (args(13).toDouble, args(14).toDouble)).repartition(partition_num)
 
-    var ffm: FFMModel = FFMWithAdag.train(train_data, m, n, dim = (args(5).toBoolean, args(6).toBoolean, args(1).toInt), n_iters = args(2).toInt,
+    println("train cnt: ", train_data.count())
+    println("train positive", train_data.filter(x => x._1 == 1.0).count())
+
+    var ffm: FFMModel = FFMWithAdag.train(train_data, m, n, dim=(args(5).toBoolean, args(6).toBoolean, args(1).toInt), n_iters=args(2).toInt,
       eta = args(3).toDouble, lambda = args(4).toDouble, normalization = args(10).toBoolean, 
-      args(15), initWeights, Some(valid_data), miniBatchFraction = args(12).toDouble)
+      args(17), initWeights, Some(valid_data), miniBatchFraction=args(12).toDouble, redo=(args(15).toDouble, args(16).toDouble))
 
     //val modelPath = args(16)
     //ffm.save(sc, modelPath)

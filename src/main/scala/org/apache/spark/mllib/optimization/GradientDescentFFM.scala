@@ -24,6 +24,7 @@ import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import scala.util.Random
 import scala.collection.mutable.ArrayBuffer
+import com.github.weiyuesu.tools.FFMLoader
 
 /**
   * Created by vincent on 17-1-4.
@@ -137,7 +138,7 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
 
 object GradientDescentFFM {
   def shuffle(data: RDD[(Double, Array[(Int, Int, Double)])]): RDD[(Double, Array[(Int, Int, Double)])] = {
-    data.map(x => (new Random().nextDouble(), x)).sortByKey().map(x => x._2)
+    data.map(x => (new Random().nextDouble(), x)).sortByKey().repartition(data.getNumPartitions - 1).map(x => x._2)
   }
 
   def runMiniBatchAdag(
@@ -176,9 +177,18 @@ object GradientDescentFFM {
     while (!converged && i < numIterations && stepCnt < 2) {
       val bcWeights = trainData.context.broadcast(weights)
       // Sample a subset (fraction miniBatchFraction) of the total data
-      val sampledTrainData = shuffle(trainPosiData.sample(redo._1 > 1.0, redo._1, i).union(trainNegaData.sample(redo._2 > 1.0, redo._2, i)))
+      //var sampledTrainData = shuffle(trainPosiData.sample(redo._1 > 1.0, redo._1, i).union(trainNegaData.sample(redo._2 > 1.0, redo._2, i)))
+      //var sampledTrainData = trainPosiData.union(trainNegaData)
+      //sampledTrainData = sampledTrainData.repartition(sampledTrainData.getNumPartitions)
+      //sampledTrainData = shuffle(sampledTrainData)
+      //var tmps = sampledTrainData.take(10)
+      //for (tmp <- tmps){
+        //println(tmp._1, tmp._2)
+      //}
+      val sampledTrainData = FFMLoader.shuffle(FFMLoader.balance(trainData, redo))
       //val sampledTrainData = trainData.sample(false, miniBatchFraction, i)
       // compute and sum up the subgradients on this subset (this is one map-reduce)
+      println("Sampled: cnt:", sampledTrainData.count(), "Postitve cnt: ", sampledTrainData.filter(x => x._1 == 1).count())
       val (trainWSum, trainLossSum) = sampledTrainData.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
         seqOp = (c, v) => {
           val (w, loss) = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1), eta, lambda, true, solver)
@@ -217,8 +227,10 @@ object GradientDescentFFM {
       if (validData == None){
         println("iter:" + i + ",tr_loss:" + trainLoss)
       }else{
-        val sampledValidData = shuffle(validPosiData.get.sample(redo._1 > 1.0, redo._1, i).union(validNegaData.get.sample(redo._2 > 1.0, redo._2, i)))
+        //val sampledValidData = shuffle(validPosiData.get.sample(redo._1 > 1.0, redo._1, i).union(validNegaData.get.sample(redo._2 > 1.0, redo._2, i)))
         //val sampledValidData = validData.get.sample(false, miniBatchFraction, i)
+        //val sampledValidData = validData.get
+        val sampledValidData = FFMLoader.shuffle(FFMLoader.balance(validData.get, redo))
         val (validWSum, validLossSum) = sampledValidData.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
           seqOp = (c, v) => {
             val (w, loss) = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1), eta, lambda, false, solver)
@@ -247,7 +259,7 @@ object GradientDescentFFM {
             (c1._1 + c2._1, c1._2 + c2._2)
           }) // TODO: add depth level
 
-        val validCnt = sampledTrainData.count()
+        val validCnt = sampledValidData.count()
         //val validCnt = sampledValidData.filter(x => x._1 == 1.0).count() * redo._1 + 
                         //sampledValidData.filter(x => x._1 != 1.0).count() * redo._2  
 

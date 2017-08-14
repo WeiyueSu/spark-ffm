@@ -85,7 +85,7 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
       }
       case "adag" => {
         for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to 2 * k - 1) {
-          W(position) = if (d < k) 2 * coef * random.nextDouble() - coef else 1.0
+          W(position) = if (d < k) coef * random.nextDouble() else 1.0
           position += 1
         }
         if (k1) {

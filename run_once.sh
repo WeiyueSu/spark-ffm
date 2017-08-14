@@ -7,7 +7,7 @@ $SPARK_HOME/bin/spark-submit \
     --num-executors 4 \
     --driver-cores 4  \
     --executor-cores 4 \
-    --class TestFFM \
+    --class TestFFMOnce \
     target/scala-2.11/spark-ffm_2.11-0.0.1.jar \
     train.ffm \
     5 \
@@ -20,10 +20,12 @@ $SPARK_HOME/bin/spark-submit \
     valid.ffm \
     test.ffm \
     true \
-    false \
+    true \
     1.0 \
-    1 \
-    1 \
-    100 \
-    0.025497016952045814  \
-    adag
+    1.0 \
+    1.0 \
+    1.0 \
+    1.0 \
+    adag \
+    /user/gzsuweiyue/Model/ftrl
+

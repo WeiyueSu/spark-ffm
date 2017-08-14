@@ -11,12 +11,13 @@ object TestFFM extends App {
 
   def train_one_day(sc: SparkContext, args: Array[String], date: String, initWeights: Option[Vector], m: Int, n: Int): FFMModel = {
 
-    val pre_path: String = "/user/gzsuweiyue/Data/netease_ctr/scala/split/2017071" + date + "/"
+    //val pre_path: String = "/user/gzsuweiyue/Data/netease_ctr/scala/split/2017071" + date + "/"
+    val pre_path: String = "/user/gzsuweiyue/Data/netease_ctr/split/2017071" + date + "/"
     val partition_num = args(7).toInt
-    val train_data = FFMLoader.load_ffm(sc, pre_path + args(0), true, args(11).toBoolean, (args(13).toDouble, args(14).toDouble)).repartition(partition_num)
+    val train_data = FFMLoader.load_ffm(sc, pre_path + args(0), args(13).toDouble != args(14).toDouble, args(11).toBoolean, (args(13).toDouble, args(14).toDouble)).repartition(partition_num)
     println("train cnt: ", train_data.count())
-    println("train positive", train_data.filter(x => x._1 == "1").count())
-    val valid_data = FFMLoader.load_ffm(sc, pre_path + args(8), true, args(11).toBoolean, (args(13).toDouble, args(14).toDouble)).repartition(partition_num)
+    println("train positive", train_data.filter(x => x._1 == '1').count())
+    val valid_data = FFMLoader.load_ffm(sc, pre_path + args(8), args(13).toDouble != args(14).toDouble, args(11).toBoolean, (args(13).toDouble, args(14).toDouble)).repartition(partition_num)
     val test_data = FFMLoader.load_ffm(sc, pre_path + args(9)).repartition(partition_num)
 
     val ffm: FFMModel = FFMWithAdag.train(train_data, m, n, dim=(args(5).toBoolean, args(6).toBoolean, args(1).toInt), n_iters=args(2).toInt,
@@ -36,7 +37,8 @@ object TestFFM extends App {
 
     println("testFFM <train_file> <k> <n_iters> <eta> <lambda> <k0> <k1> <partition_num> <valid_file> <test_file>" 
       + "<normal> <random> <miniBatchFraction> <balance1> <balance2> <redo1> <redo2> <solver> <model_path>")
-    val n = 7839
+    //val n = 7839
+    val n = 7672
     val m = 23
 
     var line = ""
