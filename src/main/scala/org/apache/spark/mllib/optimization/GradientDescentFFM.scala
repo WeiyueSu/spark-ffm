@@ -185,6 +185,7 @@ object GradientDescentFFM {
       //for (tmp <- tmps){
         //println(tmp._1, tmp._2)
       //}
+      //val sampledTrainData = if (redo == (1.0, 1.0) ) trainData else FFMLoader.shuffle(FFMLoader.balance(trainData, redo))
       val sampledTrainData = FFMLoader.shuffle(FFMLoader.balance(trainData, redo))
       //val sampledTrainData = trainData.sample(false, miniBatchFraction, i)
       // compute and sum up the subgradients on this subset (this is one map-reduce)
@@ -218,13 +219,15 @@ object GradientDescentFFM {
         }) // TODO: add depth level
       //val trainCnt = sampledTrainData.filter(x => x._1 == 1.0).count() * redo._1 + 
                       //sampledTrainData.filter(x => x._1 != 1.0).count() * redo._2  
-      val trainCnt = sampledTrainData.count()
+      //val trainCnt = sampledTrainData.count()
+      val trainCnt = (9862342 - 9979) * 2
       i += 1
       weights = Vectors.dense(trainWSum.toArray.map(_ / slices))
       stochasticLossHistory += trainLossSum / trainCnt
       val trainLoss = trainLossSum / trainCnt
 
       if (validData == None){
+        bestWeights = weights
         println("iter:" + i + ",tr_loss:" + trainLoss)
       }else{
         //val sampledValidData = shuffle(validPosiData.get.sample(redo._1 > 1.0, redo._1, i).union(validNegaData.get.sample(redo._2 > 1.0, redo._2, i)))

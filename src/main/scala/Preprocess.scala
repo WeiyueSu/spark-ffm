@@ -25,8 +25,8 @@ object Preprocess extends App {
   override def main(args: Array[String]): Unit = {
     val sc = new SparkContext(new SparkConf().setAppName("Preprocess"))
 
-    //val modelPath = "/user/gzsuweiyue/Model/ffm_adag_train_setOne_dynamicSample_convert_80train"
-    //val resultPath = "/user/gzsuweiyue/Result/80train"
+    //val modelPath = "/user/gzsuweiyue/Model/ffm_adag_train_setOne_dynamicSample_convert_100train"
+    //val resultPath = "/user/gzsuweiyue/Result/100train"
 
     //val ffm = FFMModel.load(sc, modelPath)
 
