@@ -148,7 +148,7 @@ extends Serializable {
         }
       }
     }
-    t
+    1 / (1 + math.exp(-t))
   }
 }
 

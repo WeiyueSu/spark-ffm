@@ -5,10 +5,11 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
 object FFMLoader extends Serializable {
-  def load_ffm(sc: SparkContext, data_path: String, doBalance: Boolean=false, doShuffle: Boolean=false, balanceRatio: (Double, Double)=(1.0, 1.0), setOne: Boolean=false): RDD[(Double, Array[(Int, Int, Double)])] = {
+  def load_ffm(sc: SparkContext, data_path: String, doBalance: Boolean=false, doShuffle: Boolean=false, balanceRatio: (Double, Double)=(1.0, 1.0), setOne: Boolean=false, dropTime: Boolean=false): RDD[(Double, Array[(Int, Int, Double)])] = {
     var data = sc.textFile(data_path).map(_.split(" ")).map(x => {
         val y = if(x(0).toInt > 0 ) 1.0 else -1.0
-        val nodeArray: Array[(Int, Int, Double)] = x.drop(1).map(_.split(":")).map(x => {
+        val features = if (dropTime) x.slice(1, x.size - 1) else x.slice(1, x.size)
+        val nodeArray: Array[(Int, Int, Double)] = features.map(_.split(":")).map(x => {
             if (setOne){
               (x(0).toInt, x(1).toInt, 1.0)
             }else{

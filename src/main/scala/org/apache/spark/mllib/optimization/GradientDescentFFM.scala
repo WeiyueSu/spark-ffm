@@ -165,16 +165,16 @@ object GradientDescentFFM {
     var bestWeights = initialWeights
     var stepCnt = 0
 
-    val trainPosiData = trainData.filter(x => x._1 == 1.0)
-    val trainNegaData = trainData.filter(x => x._1 != 1.0)
+    //val trainPosiData = trainData.filter(x => x._1 == 1.0)
+    //val trainNegaData = trainData.filter(x => x._1 != 1.0)
 
-    val (validPosiData, validNegaData) = if (validData != None){
-      (Some(validData.get.filter(x => x._1 == 1.0)), Some(validData.get.filter(x => x._1 != 1.0)))
-    }else{
-      (None, None)
-    }
+    //val (validPosiData, validNegaData) = if (validData != None){
+      //(Some(validData.get.filter(x => x._1 == 1.0)), Some(validData.get.filter(x => x._1 != 1.0)))
+    //}else{
+      //(None, None)
+    //}
 
-    while (!converged && i < numIterations && stepCnt < 2) {
+    while (!converged && i < numIterations && stepCnt < 1) {
       val bcWeights = trainData.context.broadcast(weights)
       // Sample a subset (fraction miniBatchFraction) of the total data
       //var sampledTrainData = shuffle(trainPosiData.sample(redo._1 > 1.0, redo._1, i).union(trainNegaData.sample(redo._2 > 1.0, redo._2, i)))
@@ -188,7 +188,7 @@ object GradientDescentFFM {
       val sampledTrainData = FFMLoader.shuffle(FFMLoader.balance(trainData, redo))
       //val sampledTrainData = trainData.sample(false, miniBatchFraction, i)
       // compute and sum up the subgradients on this subset (this is one map-reduce)
-      println("Sampled: cnt:", sampledTrainData.count(), "Postitve cnt: ", sampledTrainData.filter(x => x._1 == 1).count())
+      //println("Sampled: cnt:", sampledTrainData.count(), "Postitve cnt: ", sampledTrainData.filter(x => x._1 == 1).count())
       val (trainWSum, trainLossSum) = sampledTrainData.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
         seqOp = (c, v) => {
           val (w, loss) = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1), eta, lambda, true, solver)
@@ -230,7 +230,8 @@ object GradientDescentFFM {
         //val sampledValidData = shuffle(validPosiData.get.sample(redo._1 > 1.0, redo._1, i).union(validNegaData.get.sample(redo._2 > 1.0, redo._2, i)))
         //val sampledValidData = validData.get.sample(false, miniBatchFraction, i)
         //val sampledValidData = validData.get
-        val sampledValidData = FFMLoader.shuffle(FFMLoader.balance(validData.get, redo))
+        //val sampledValidData = FFMLoader.shuffle(FFMLoader.balance(validData.get, redo))
+        val sampledValidData = FFMLoader.balance(validData.get, redo)
         val (validWSum, validLossSum) = sampledValidData.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
           seqOp = (c, v) => {
             val (w, loss) = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1), eta, lambda, false, solver)
